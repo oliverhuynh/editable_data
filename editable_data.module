@@ -1,0 +1,328 @@
+<?php
+
+/**
+ * Implements hook_views_api().
+ */
+function editable_data_views_api() {
+  return array(
+    'api' => 3.0,
+    'path' => drupal_get_path('module', 'editable_data') . '/views',
+  );
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ */
+function editable_data_form_views_ui_config_item_form_alter(&$form, &$form_state) {
+  // Only apply our logic to field configurations:
+  if ($form_state['type'] != 'field') {
+    return;
+  }
+
+  $view_name = $form_state['view']->name;
+  $display_name = $form_state['display_id'];
+  $field_name = $form_state['id'];
+
+  $entity_data_settings = _entity_data_field_settings_get($view_name, $display_name, $field_name);
+
+  $form['options']['editable_data'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Editable With Data Settings'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+  $entity_types = array_keys(entity_get_info());
+  $form['options']['editable_data_entity_type'] = array(
+    '#type' => 'select',
+    '#title' => t('Entity'),
+    '#description' => t('This field belong to which entity'),
+    '#options' => array('-' => 'Disable') + array_combine($entity_types, $entity_types),
+    '#default_value' => $entity_data_settings['editable_data_entity_type'],
+    '#fieldset' => 'editable_data',
+  );
+  $fields = array_keys($form_state['view']->display_handler->handlers['field']);
+  $form['options']['editable_data_entity_id_field'] = array(
+    '#type' => 'select',
+    '#title' => t('Entity ID Field'),
+    '#description' => t('Choose the field that is the id of this entity'),
+    '#options' => array('-' => 'Disable') + array_combine($fields, $fields),
+    '#default_value' => $entity_data_settings['editable_data_entity_id_field'],
+    '#fieldset' => 'editable_data',
+  );
+
+
+  // Add our own submit handler, executed before views_ui_standard_submit()
+  array_unshift($form['buttons']['submit']['#submit'], 'entity_data_form_views_ui_config_item_form_submit');
+}
+
+/**
+ * Implements hook_forms().
+ */
+function editable_data_forms($form_id) {
+  $forms = array();
+  if (preg_match('/^property_editablefields_form_/', $form_id)) {
+    $forms[$form_id] = array(
+      'callback' => 'property_editablefields_form',
+    );
+  }
+  return $forms;
+}
+
+/**
+ * The property editable data form
+ */
+function property_editablefields_form($form, &$form_state, $record, $values) {
+  $value = $record->get_value($values);
+  $form += array('#parents' => array());
+  $view_name = $record->view->name;
+  $display_name = $record->view->current_display;
+  $field_name = $record->field;
+
+  $entity_data_settings = _entity_data_field_settings_get($view_name, $display_name, $field_name);
+
+  $row = $record->view->result[$record->view->row_index];
+  if (!isset($row->{$entity_data_settings['editable_data_entity_id_field']}) || !$row->{$entity_data_settings['editable_data_entity_id_field']}) {
+    return ;
+  }
+  $form_state['#entity'] = isset($form_state['#entity']) ? $form_state['#entity'] : array(
+    'entity_name' => $entity_data_settings['editable_data_entity_type'],
+    'id' => $row->{$entity_data_settings['editable_data_entity_id_field']},
+  );
+  $form_state['#record'] = isset($form_state['#record']) ? $form_state['#record'] : $record;
+  $form_state['#value'] = isset($form_state['#value']) ? $form_state['#value'] : $value;
+  $form_state['#value_field'] = isset($form_state['#value_field']) ? $form_state['#value_field'] : $record->field_alias;
+  $form_state['#values'] = isset($form_state['#values']) ? $form_state['#values'] : $values;
+  $form_state['#field'] = isset($form_state['#field']) ? $form_state['#field'] : $record->field;
+  $form['actions'] = array('#type' => 'actions');
+  $field_name = $record->field_alias;
+  $wrapper_id = drupal_html_id('property-editablefields-' . $field_name);
+
+  $edit_mode_state = _property_editablefields_get_edit_mode($form_state, $form['#parents']);
+
+  $form_state['#uitype'] = isset($form_state['#uitype']) ? $form_state['#uitype'] : get_class($record);
+  if ($edit_mode_state) {
+    switch ($form_state['#uitype']) {
+      case 'editable_data_views_handler_field_date':
+        $timestamp = strtotime($form_state['#value']) ? strtotime($form_state['#value']) : $form_state['#value'];
+        $timestamp = $timestamp ? $timestamp : time();
+        $format = "m/d/Y";
+
+        $form[$form_state['#field']] = array(
+          '#title_display' => 'invisible',
+          '#type' => 'date_popup',
+          '#date_format' => $format,
+          '#date_label_position' => 'invisible',
+          '#default_value' => array(
+            'date' => date($format, $timestamp),
+          ),
+          '#value_callback' => 'editable_data_date_field_widget_value',
+        );
+        break;
+      default:
+        $form[$form_state['#field']] = array(
+          '#type' => 'textfield',
+          '#default_value' => $form_state['#value']
+        );
+    }
+  }
+  else {
+    $render_value = is_object($form_state['#record']) ? $form_state['#record']->parentrender($form_state['#values']) : $form_state['#values'];
+    $form[$form_state['#field'] . '_showed'] = array(
+      '#markup' => $render_value
+    );
+  }
+
+  // Click to edit mode: generate a AJAX-bound submit handler.
+  $ajax = array(
+    'callback' => 'propertyeditablefields_form_update',
+    'wrapper' => $wrapper_id,
+    'effect' => 'fade',
+    'event' => 'click',
+    'progress' => array(
+      'type' => 'throbber',
+      'message' => t('Please wait'),
+    ),
+  );
+  $form['#prefix'] = '<div id="' . $wrapper_id . '" class="propertyeditablefield-item">';
+  $form['#suffix'] = '</div>';
+  if (!$edit_mode_state) {
+    $form['actions']['edit'] = array(
+      '#name' => 'edit-' . implode('-', $form['#parents']),
+      '#type' => 'submit',
+      '#value' => t('Edit'),
+      '#submit' => array('propertyeditablefields_form_submit_edit_mode'),
+      '#ajax' => $ajax,
+      '#limit_validation_errors' => array($form['#parents']),
+    );
+  }
+  else {
+    $form['actions']['ef_submit'] = array(
+      '#name' => 'submit-' . implode('-', $form['#parents']),
+      '#type' => 'submit',
+      '#value' => t('Save'),
+      '#ajax' => $ajax,
+      '#submit' => array('propertyeditablefields_form_submit_main'),
+      '#limit_validation_errors' => array($form['#parents']),
+    );
+  }
+
+  $form['#validate'][] = 'propertyeditablefields_form_validate';
+  return $form;
+}
+
+/**
+ * Form validate callback to alter values: date...
+ */
+function propertyeditablefields_form_validate($form, &$form_state) {
+  if (!isset($form['actions']['edit'])) {
+    if (isset($form[$form_state['#field']]) && $form[$form_state['#field']]['#type'] == 'date_popup') {
+      $date = $form_state['values'][$form_state['#field']];
+      $form_state['values'][$form_state['#field']] = strtotime($date);
+    }
+  }
+}
+
+/**
+ * Ajax callback: process an Ajax submission of the form.
+ */
+function propertyeditablefields_form_update($form, $form_state) {
+  // Return the proper part of the form.
+  $parents = $form_state['triggering_element']['#array_parents'];
+  // Remove the 'actions' and 'link' elements.
+  array_pop($parents);
+  array_pop($parents);
+
+  $element = &$form;
+  foreach ($parents as $parent) {
+    $element = &$element[$parent];
+  }
+
+  return $element;
+}
+
+/**
+ * Form submit callback: switch to edit mode.
+ */
+function propertyeditablefields_form_submit_edit_mode(&$form, &$form_state) {
+  // Remove the 'actions' and 'link' elements.
+  $parents = $form_state['triggering_element']['#array_parents'];
+  array_pop($parents);
+  array_pop($parents);
+  _propertyeditablefields_set_edit_mode($form_state, TRUE, $parents);
+  $form_state['rebuild'] = TRUE;
+}
+/**
+ * Helper for property form
+ */
+function _propertyeditablefields_set_edit_mode(&$form_state, $value, $parents = array()) {
+  if (!empty($parents)) {
+    if (!isset($form_state['edit_mode']) || !is_array($form_state['edit_mode'])) {
+      $form_state['edit_mode'] = array();
+    }
+    drupal_array_set_nested_value($form_state['edit_mode'], $parents, $value);
+  }
+  else {
+    $form_state['edit_mode'] = $value;
+  }
+}
+
+/**
+ * Helper for property form
+ */
+function _property_editablefields_get_edit_mode($form_state, $parents = array()) {
+  if (!isset($form_state['edit_mode'])) {
+    return FALSE;
+  }
+
+  if (!empty($parents) && is_array($form_state['edit_mode'])) {
+    return drupal_array_get_nested_value($form_state['edit_mode'], $parents);
+  }
+  return (bool) $form_state['edit_mode'];
+}
+
+/**
+ * Form submit callback: save the field modifications.
+ */
+function propertyeditablefields_form_submit_main(&$form, &$form_state) {
+  // Return the proper part of the form.
+  $parents = $form_state['triggering_element']['#array_parents'];
+  $entities = entity_load($form_state['#entity']['entity_name'], array($form_state['#entity']['id']));
+  if (!$entities) {
+    return ;
+  }
+
+  $entity = $entities[$form_state['#entity']['id']];
+  $entity->{$form_state['#field']} = $form_state['#value'] = $form_state['#values']->{$form_state['#value_field']} = $form_state['values'][$form_state['#field']];
+  _propertyeditablefields_set_edit_mode($form_state, FALSE);
+  $form_state['rebuild'] = TRUE;
+  entity_save($form_state['#entity']['entity_name'], $entity);
+}
+
+/**
+ * Helper for property setting
+ */
+function _entity_data_field_settings_get($view_name, $display_name, $field_name) {
+  $variable_name ='entity_data_' . $view_name . '_' . $display_name . '_' . $field_name;
+  $ret = variable_get($variable_name, FALSE);
+  if ($ret === FALSE) {
+    $variable_name ='entity_data_' . $view_name . '_default_' . $field_name;
+    $ret = variable_get($variable_name, array('editable_data_entity_type' => '-', 'editable_data_entity_id_field' => '-'));
+  }
+
+  return $ret;
+}
+
+/**
+ * Helper for property setting
+ */
+function _entity_data_field_settings_set($view_name, $display_name, $field_name, $settings = FALSE) {
+  $variable_name ='entity_data_' . $view_name . '_' . $display_name . '_' . $field_name;
+  if ($settings) {
+    variable_set($variable_name, $settings);
+  }
+  else {
+    variable_del($variable_name);
+  }
+}
+
+/**
+ * Form submit callback for property setting
+ */
+function entity_data_form_views_ui_config_item_form_submit($form, &$form_state) {
+  $view_name = $form_state['view']->name;
+  $display_name = $form_state['display_id'];
+  $field_name = $form_state['id'];
+  $override_display_name = reset($form_state['values']['override']);
+  if ($display_name != $override_display_name) {
+    _entity_data_field_settings_set($view_name, $display_name, $field_name, FALSE);
+    $display_name = $override_display_name;
+  }
+  $settings = array(
+    'editable_data_entity_type' => $form_state['values']['options']['editable_data_entity_type'],
+    'editable_data_entity_id_field' => $form_state['values']['options']['editable_data_entity_id_field'],
+  );
+
+  // If no action was desired, delete the settings entirely:
+  if (!$settings['editable_data_entity_type'] || ($settings['editable_data_entity_type'] == '-')) {
+    $settings = FALSE;
+  }
+  _entity_data_field_settings_set($view_name, $display_name, $field_name, $settings);
+}
+/**
+ * Main callback to embed the propertyeditabl form
+ */
+function editable_embed_field($record, $value) {
+  $view_name = $record->view->name;
+  $display_name = $record->view->current_display;
+  $field_name = $record->field;
+  $entity_data_settings = _entity_data_field_settings_get($view_name, $display_name, $field_name);
+  if ($entity_data_settings['editable_data_entity_type'] != '-') {
+    static $property_editablefields_form;
+    $property_editablefields_form = isset($property_editablefields_form) ? $property_editablefields_form : 0;
+    $property_editablefields_form++;
+    $form = drupal_get_form('property_editablefields_form_' . $property_editablefields_form, $record, $value);
+    return drupal_render($form);
+  }
+  return FALSE;
+}

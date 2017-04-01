@@ -1,0 +1,9 @@
+name = Editable Data
+description = Integrate editablefields with data
+core = 7.x
+
+dependencies[] = ctools
+dependencies[] = views
+files[] = views/editable_data.views.inc
+files[] = views/editable_data_views_handler_field.inc
+files[] = views/editable_data_views_handler_field_date.inc
