@@ -13,6 +13,7 @@ function editable_data_views_api() {
 /**
  * Implements hook_form_FORM_ID_alter().
  *
+ * Alter all field config forms to add aggregation/filtering options.
  */
 function editable_data_form_views_ui_config_item_form_alter(&$form, &$form_state) {
   // Only apply our logic to field configurations:
@@ -165,7 +166,16 @@ function property_editablefields_form($form, &$form_state, $record, $values) {
       '#submit' => array('propertyeditablefields_form_submit_main'),
       '#limit_validation_errors' => array($form['#parents']),
     );
+    $form['actions']['ef_cancel'] = array(
+      '#name' => 'cancel-' . implode('-', $form['#parents']),
+      '#type' => 'submit',
+      '#value' => t('Cancel'),
+      '#ajax' => $ajax,
+      '#submit' => array('propertyeditablefields_form_cancel_main'),
+      '#limit_validation_errors' => array($form['#parents']),
+    );
   }
+  $form['#attached']['js'][] = drupal_get_path('module', 'editable_data') . '/editable_data.js';
 
   $form['#validate'][] = 'propertyeditablefields_form_validate';
   return $form;
@@ -239,6 +249,15 @@ function _property_editablefields_get_edit_mode($form_state, $parents = array())
     return drupal_array_get_nested_value($form_state['edit_mode'], $parents);
   }
   return (bool) $form_state['edit_mode'];
+}
+
+
+/**
+ * Form submit callback: save the field modifications.
+ */
+function propertyeditablefields_form_cancel_main(&$form, &$form_state) {
+  _propertyeditablefields_set_edit_mode($form_state, FALSE);
+  $form_state['rebuild'] = TRUE;
 }
 
 /**
