@@ -73,7 +73,7 @@ function editable_data_forms($form_id) {
 /**
  * The property editable data form
  */
-function property_editablefields_form($form, &$form_state, $record, $values) {
+function property_editablefields_form($form, &$form_state, $record, $values, $formeelmid) {
   $value = $record->get_value($values);
   $form += array('#parents' => array());
   $view_name = $record->view->name;
@@ -140,6 +140,7 @@ function property_editablefields_form($form, &$form_state, $record, $values) {
     'wrapper' => $wrapper_id,
     'effect' => 'fade',
     'event' => 'click',
+    // This does not work'path' => 'system/ajax',// TODO Check if js is enabled then add this path
     'progress' => array(
       'type' => 'throbber',
       'message' => t('Please wait'),
@@ -148,7 +149,7 @@ function property_editablefields_form($form, &$form_state, $record, $values) {
   $form['#prefix'] = '<div id="' . $wrapper_id . '" class="propertyeditablefield-item">';
   $form['#suffix'] = '</div>';
   if (!$edit_mode_state) {
-    $form['actions']['edit'] = array(
+    $form['actions']['edit_' . $formeelmid] = array(
       '#name' => 'edit-' . implode('-', $form['#parents']),
       '#type' => 'submit',
       '#value' => t('Edit'),
@@ -158,7 +159,7 @@ function property_editablefields_form($form, &$form_state, $record, $values) {
     );
   }
   else {
-    $form['actions']['ef_submit'] = array(
+    $form['actions']['ef_submit_' . $formeelmid] = array(
       '#name' => 'submit-' . implode('-', $form['#parents']),
       '#type' => 'submit',
       '#value' => t('Save'),
@@ -166,7 +167,7 @@ function property_editablefields_form($form, &$form_state, $record, $values) {
       '#submit' => array('propertyeditablefields_form_submit_main'),
       '#limit_validation_errors' => array($form['#parents']),
     );
-    $form['actions']['ef_cancel'] = array(
+    $form['actions']['ef_cancel_' . $formeelmid] = array(
       '#name' => 'cancel-' . implode('-', $form['#parents']),
       '#type' => 'submit',
       '#value' => t('Cancel'),
@@ -212,6 +213,32 @@ function propertyeditablefields_form_update($form, $form_state) {
 }
 
 /**
+ * Form submit callback: save the field modifications.
+ */
+function propertyeditablefields_form_submit_main(&$form, &$form_state) {
+  // Return the proper part of the form.
+  $parents = $form_state['triggering_element']['#array_parents'];
+  $entities = entity_load($form_state['#entity']['entity_name'], array($form_state['#entity']['id']));
+  if (!$entities) {
+    return ;
+  }
+
+  $entity = $entities[$form_state['#entity']['id']];
+  $entity->{$form_state['#field']} = $form_state['#value'] = $form_state['#values']->{$form_state['#value_field']} = $form_state['values'][$form_state['#field']];
+  _propertyeditablefields_set_edit_mode($form_state, FALSE);
+  $form_state['rebuild'] = TRUE;
+  entity_save($form_state['#entity']['entity_name'], $entity);
+}
+
+/**
+ * Form submit callback: save the field modifications.
+ */
+function propertyeditablefields_form_cancel_main(&$form, &$form_state) {
+  _propertyeditablefields_set_edit_mode($form_state, FALSE);
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
  * Form submit callback: switch to edit mode.
  */
 function propertyeditablefields_form_submit_edit_mode(&$form, &$form_state) {
@@ -222,6 +249,7 @@ function propertyeditablefields_form_submit_edit_mode(&$form, &$form_state) {
   _propertyeditablefields_set_edit_mode($form_state, TRUE, $parents);
   $form_state['rebuild'] = TRUE;
 }
+
 /**
  * Helper for property form
  */
@@ -249,33 +277,6 @@ function _property_editablefields_get_edit_mode($form_state, $parents = array())
     return drupal_array_get_nested_value($form_state['edit_mode'], $parents);
   }
   return (bool) $form_state['edit_mode'];
-}
-
-
-/**
- * Form submit callback: save the field modifications.
- */
-function propertyeditablefields_form_cancel_main(&$form, &$form_state) {
-  _propertyeditablefields_set_edit_mode($form_state, FALSE);
-  $form_state['rebuild'] = TRUE;
-}
-
-/**
- * Form submit callback: save the field modifications.
- */
-function propertyeditablefields_form_submit_main(&$form, &$form_state) {
-  // Return the proper part of the form.
-  $parents = $form_state['triggering_element']['#array_parents'];
-  $entities = entity_load($form_state['#entity']['entity_name'], array($form_state['#entity']['id']));
-  if (!$entities) {
-    return ;
-  }
-
-  $entity = $entities[$form_state['#entity']['id']];
-  $entity->{$form_state['#field']} = $form_state['#value'] = $form_state['#values']->{$form_state['#value_field']} = $form_state['values'][$form_state['#field']];
-  _propertyeditablefields_set_edit_mode($form_state, FALSE);
-  $form_state['rebuild'] = TRUE;
-  entity_save($form_state['#entity']['entity_name'], $entity);
 }
 
 /**
@@ -340,7 +341,7 @@ function editable_embed_field($record, $value) {
     static $property_editablefields_form;
     $property_editablefields_form = isset($property_editablefields_form) ? $property_editablefields_form : 0;
     $property_editablefields_form++;
-    $form = drupal_get_form('property_editablefields_form_' . $property_editablefields_form, $record, $value);
+    $form = drupal_get_form('property_editablefields_form_' . $property_editablefields_form, $record, $value, $property_editablefields_form);
     return drupal_render($form);
   }
   return FALSE;
