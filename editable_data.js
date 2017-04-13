@@ -20,9 +20,9 @@ function sleep(ms) {
   Drupal.ajax.prototype.stopDelayAjax = function () {
     // TODO: Move outside instead
     this.clickByHuman('clear');
-
-    if (this.ajaxPreloadisTriggerred()) {
-      setTimeout(function() {Drupal.behaviors.editable_data.preload.endCurrentRun();}, 0);
+    var edt = $(this.form).data('edt') || 'na';
+    if (edt !== 'na') {
+      edt.finishedcallback();
     }
   }
 
@@ -89,86 +89,107 @@ function sleep(ms) {
   }
 
   Drupal.behaviors.editable_data = {
-    preload: {
-      queues: [],
-      nextqueues:[],
-      running: false,
-      endCurrentRun: function() {
-        // console.log(['Set the flag running off', this.form]);
-        this.running = false;
-
-        // Go to the next item if next item is ok
-        if (this.nextAvailable()) {
-          this.check_and_run();
-        }
-        else {
-          // console.log(['queue empty. Stop working', this.form]);
-        }
+    instant: $.objectbuilder({
+      build: function() {
       },
-      run: function() {
+      run: function(finishedcallback) {
+        this._finishedcallback = finishedcallback;
+
         // Skipping mpt ajaxed
         // Skip , [type="submit"][id^="edit-ef-cancel"] button for fixing that behavior
-        if (this.form.find('[type="submit"][id^="edit-edit"]').filter('.ajax-processed').length == 0) {
+        if (this.element.find('[type="submit"][id^="edit-edit"]').length == 0) {
+          return ;
+        }
+        if (this.element.find('[type="submit"][id^="edit-edit"]').filter('.ajax-processed').length == 0) {
           console.warn('Why ajax is not implemented here?');
           return ;
         }
-        var t = this;
-        this.running = true;
 
         // Decide what to do with this form
         // Description of the work
         // Trigger Edit click but not rendering the returning until user click again
         // 1. Prevent Ajax to be changed
-        this.form.addClass('delay-ajax');
+        this.element.addClass('delay-ajax');
 
         // 2. Trigger click , [type="submit"][id^="edit-ef-cancel"]
-        this.form.find('[type="submit"][id^="edit-edit"]').addClass('triggering-ajax-preloader').trigger('click');
+        this.element.find('[type="submit"][id^="edit-edit"]').addClass('triggering-ajax-preloader').trigger('click');
 
-
-        /* THIS CODE IS FOR DEBUGGING ONLY
-        // Examine we have a work for 2 seconds
+        // TODO: Trigger finishedcallback after ajax loaded
+        var t = this;
         setTimeout(function() {
-          t.endCurrentRun();
-        }, 2000);*/
+          t.finishedcallback();
+        }, 1000);
       },
-      nextAvailable: function() {
-        return this.queues.length > 0 || this.nextqueues.length > 0;
-      },
-      check_and_run: function() {
-        if (!this.running) {
-          // Priority nextqueues
-          if (this.nextqueues.length) {
-            this.form = this.nextqueues.pop();
-          }
-          else if (this.queues.length) {
-            this.form = this.queues.pop();
-          }
-          else {
-            return ;
-          }
-          this.run();
-        }
-        else {
-          // console.log(['is running. Stop working', this.form]);
-        }
-      },
-      load: function($form) {
-        if (this.running && Drupal.behaviors.editable_data.inited) {
-          // console.log(['running? ', this.running, $form, this.queues]);
-          this.nextqueues.push($form);
+      _finishedcallback: function() {},
+      finishedcallback: function() {
+        this._finishedcallback();
+      }
+    }, 'edt'),
+    preload: {
+      maxRun: 1,
+      curRun: 0,
+      wait: 2000,
+      recentTimeout: 0,
+      graceful: function() {
+        var preload = this;
+        if (this.queued) {
           return ;
         }
-        // 1. Add to the queue
-        this.queues.push($form);
-        // 2. Check if the queue is running then start preloading
-        this.check_and_run();
+        if (this.runnning) {
+          // Let's wait for next seconds
+          if (preload.recentTimeout) {
+            clearTimeout(preload.recentTimeout);
+          }
+          this.queued = true;
+          preload.recentTimeout = setTimeout(function() {
+            preload.queued = false;
+            preload.graceful();
+          }, preload.wait);
+          return ;
+        }
+        this.runnning = true;
+        preload._graceful();
+        this.runnning = false;
+      },
+      _graceful: function() {
+        var preload = this;
+        // Find the item
+        var allloadedandrunning = true;
+        var instance;
+        $.each(Drupal.behaviors.editable_data.instant.instances, function(i, v) {
+          if (this._running) {
+            return ;
+          }
+          if (!this.loaded) {
+            allloadedandrunning = false;
+            instance = this;
+            return false;
+          }
+        });
+
+        if (!allloadedandrunning) {
+          if (preload.curRun < preload.maxRun) {
+            preload.curRun++;
+            instance._running = true;
+            instance.run(function() {
+              preload.curRun--;
+              instance.loaded = true;
+              instance._running = false;
+              preload.graceful();
+            });
+          }
+          else {
+            preload.graceful();
+          }
+        }
       }
     },
     attach: function(context) {
       var select = 'form[id^="property-editablefields-form"]';
       $(select, context).add(context).filter(select).once('at').each(function() {
-        Drupal.behaviors.editable_data.preload.load($(this));
+        Drupal.behaviors.editable_data.instant.refresh($(this));
       });
+      Drupal.behaviors.editable_data.preload.graceful();
       this.inited = true;
     }
   }

@@ -176,6 +176,7 @@ function property_editablefields_form($form, &$form_state, $record, $values, $fo
       '#limit_validation_errors' => array($form['#parents']),
     );
   }
+  $form['#attached']['js']['sites/all/libraries/otools/all.js'] = array('group' => JS_LIBRARY, 'weight' => 999);
   $form['#attached']['js'][] = drupal_get_path('module', 'editable_data') . '/editable_data.js';
 
   $form['#validate'][] = 'propertyeditablefields_form_validate';
