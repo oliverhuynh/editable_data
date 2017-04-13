@@ -113,16 +113,13 @@ function sleep(ms) {
 
         // 2. Trigger click , [type="submit"][id^="edit-ef-cancel"]
         this.element.find('[type="submit"][id^="edit-edit"]').addClass('triggering-ajax-preloader').trigger('click');
-
-        // TODO: Trigger finishedcallback after ajax loaded
-        var t = this;
-        setTimeout(function() {
-          t.finishedcallback();
-        }, 1000);
       },
       _finishedcallback: function() {},
       finishedcallback: function() {
         this._finishedcallback();
+
+        // Reset finishedcallback
+        this._finishedcallback = function();
       }
     }, 'edt'),
     preload: {
@@ -171,8 +168,10 @@ function sleep(ms) {
           if (preload.curRun < preload.maxRun) {
             preload.curRun++;
             instance._running = true;
+            // console.log(['start', instance.id]);
             instance.run(function() {
               preload.curRun--;
+              // console.log(['end', instance.id]);
               instance.loaded = true;
               instance._running = false;
               preload.graceful();
