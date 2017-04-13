@@ -119,7 +119,7 @@ function sleep(ms) {
         this._finishedcallback();
 
         // Reset finishedcallback
-        this._finishedcallback = function();
+        this._finishedcallback = function() {};
       }
     }, 'edt'),
     preload: {
