@@ -98,10 +98,12 @@ function sleep(ms) {
         // Skipping mpt ajaxed
         // Skip , [type="submit"][id^="edit-ef-cancel"] button for fixing that behavior
         if (this.element.find('[type="submit"][id^="edit-edit"]').length == 0) {
+          this._finishedcallback();
           return ;
         }
         if (this.element.find('[type="submit"][id^="edit-edit"]').filter('.ajax-processed').length == 0) {
           console.warn('Why ajax is not implemented here?');
+          this._finishedcallback();
           return ;
         }
 
