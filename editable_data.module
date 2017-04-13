@@ -342,7 +342,10 @@ function editable_embed_field($record, $value) {
     static $property_editablefields_form;
     $property_editablefields_form = isset($property_editablefields_form) ? $property_editablefields_form : 0;
     $property_editablefields_form++;
-    $form = drupal_get_form('property_editablefields_form_' . $property_editablefields_form, $record, $value, $property_editablefields_form);
+    // To other form also
+    $page = isset($_GET['page']) ? $_GET['page'] : 0;
+    $final_property_editablefields_form = $page . '_' . $property_editablefields_form;
+    $form = drupal_get_form('property_editablefields_form_' . $final_property_editablefields_form, $record, $value, $final_property_editablefields_form);
     return drupal_render($form);
   }
   return FALSE;
