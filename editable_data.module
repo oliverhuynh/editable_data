@@ -97,7 +97,7 @@ function property_editablefields_form($form, &$form_state, $record, $values, $fo
   $form_state['#field'] = isset($form_state['#field']) ? $form_state['#field'] : $record->field;
   $form['actions'] = array('#type' => 'actions');
   $field_name = $record->field_alias;
-  $wrapper_id = drupal_html_id('property-editablefields-' . $field_name);
+  $wrapper_id = drupal_html_id('property-editablefields-' . $field_name) . '-' . $formeelmid;
 
   $edit_mode_state = _property_editablefields_get_edit_mode($form_state, $form['#parents']);
 
