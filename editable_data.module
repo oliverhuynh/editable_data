@@ -11,6 +11,18 @@ function editable_data_views_api() {
 }
 
 /**
+ * Implements hook_form_alter().
+ *
+ */
+function editable_data_form_alter(&$form, &$form_state, $form_id) {
+  if (isset($form['#substitutions']) && isset($form['#theme']) && ($form['#theme'] == 'views_form_views_form') && isset($form['actions']['submit'])) {
+    // Hide save button at the bottom in editable fields's views.
+    $form['actions']['submit']['#prefix'] = '<div style="display:none;">';
+    $form['actions']['submit']['#suffix'] = '</div>';
+  }
+}
+
+/**
  * Implements hook_form_FORM_ID_alter().
  *
  * Alter all field config forms to add aggregation/filtering options.
