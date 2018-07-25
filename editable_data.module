@@ -15,7 +15,7 @@ function editable_data_views_api() {
  *
  */
 function editable_data_form_alter(&$form, &$form_state, $form_id) {
-  if (isset($form['#substitutions']) && isset($form['#theme']) && ($form['#theme'] == 'views_form_views_form') && isset($form['actions']['submit'])) {
+  if (isset($form_state['editablefields']) && isset($form['#substitutions']) && isset($form['#theme']) && ($form['#theme'] == 'views_form_views_form') && isset($form['actions']['submit'])) {
     // Hide save button at the bottom in editable fields's views.
     $form['actions']['submit']['#prefix'] = '<div style="display:none;">';
     $form['actions']['submit']['#suffix'] = '</div>';
@@ -46,23 +46,42 @@ function editable_data_form_views_ui_config_item_form_alter(&$form, &$form_state
     '#collapsed' => TRUE,
   );
   $entity_types = array_keys(entity_get_info());
-  $form['options']['editable_data_entity_type'] = array(
+  $form['options']['editable_data']['editable_data_entity_type'] = array(
     '#type' => 'select',
     '#title' => t('Entity'),
     '#description' => t('This field belong to which entity'),
     '#options' => array('-' => 'Disable') + array_combine($entity_types, $entity_types),
     '#default_value' => $entity_data_settings['editable_data_entity_type'],
-    '#fieldset' => 'editable_data',
+    // '#fieldset' => 'editable_data',
   );
   $fields = array_keys($form_state['view']->display_handler->handlers['field']);
-  $form['options']['editable_data_entity_id_field'] = array(
+  $form['options']['editable_data']['editable_data_entity_id_field'] = array(
     '#type' => 'select',
     '#title' => t('Entity ID Field'),
     '#description' => t('Choose the field that is the id of this entity'),
     '#options' => array('-' => 'Disable') + array_combine($fields, $fields),
     '#default_value' => $entity_data_settings['editable_data_entity_id_field'],
-    '#fieldset' => 'editable_data',
+    //'#fieldset' => 'editable_data',
   );
+  $form['options']['editable_data']['editable_data_edit_mode'] = array(
+    '#type' => 'select',
+    '#title' => t('Edit mode'),
+    '#options' => array(
+      'normal' => t("Click to edit"),
+      'edit' => t("Default is edit state and one global save"),
+    ),
+    '#default_value' => $entity_data_settings['editable_data_edit_mode'],
+  );
+  if (module_exists('vbo_extend')) {
+    $form['options']['editable_data'] += array(
+      'editable_data_setcurrent' => array(
+        '#type' => 'checkbox',
+        '#title' => t('Set current'),
+        '#default_value' => $entity_data_settings['editable_data_setcurrent'],
+        '#description' => t('Date fields insert current date and time when user clicks the date input field.')
+      ),
+    );
+  }
 
 
   // Add our own submit handler, executed before views_ui_standard_submit()
@@ -111,13 +130,18 @@ function property_editablefields_form($form, &$form_state, $record, $values, $fo
   $field_name = $record->field_alias;
   $wrapper_id = drupal_html_id('property-editablefields-' . $field_name) . '-' . $formeelmid;
 
-  $edit_mode_state = _property_editablefields_get_edit_mode($form_state, $form['#parents']);
+  $edit_mode_state = _property_editablefields_get_edit_mode($form_state, $form['#parents'], $entity_data_settings);
 
   $form_state['#uitype'] = isset($form_state['#uitype']) ? $form_state['#uitype'] : get_class($record);
   if ($edit_mode_state) {
     switch ($form_state['#uitype']) {
       case 'editable_data_views_handler_field_date':
-        $timestamp = strtotime($form_state['#value']) ? strtotime($form_state['#value']) : $form_state['#value'];
+        if (!is_numeric($form_state['#value'])) {
+          $timestamp = strtotime($form_state['#value']) ? strtotime($form_state['#value']) : $form_state['#value'];
+        }
+        else {
+          $timestamp = $form_state['#value'];
+        }
         $timestamp = $timestamp ? $timestamp : time();
         $format = "m/d/Y";
 
@@ -131,6 +155,16 @@ function property_editablefields_form($form, &$form_state, $record, $values, $fo
           ),
           '#value_callback' => 'editable_data_date_field_widget_value',
         );
+
+        // No default value any more
+        if (!is_numeric($form_state['#value']) || !$form_state['#value']) {
+          unset($form[$form_state['#field']]['#default_value']);
+        }
+
+        // Set_current feature from vbo_extend
+        if (isset($entity_data_settings['editable_data_setcurrent']) && $entity_data_settings['editable_data_setcurrent'] && module_exists('vbo_extend')) {
+          $form[$form_state['#field']]['#post_render'][] = 'vboe_add_setcurrent';
+        }
         break;
       default:
         $form[$form_state['#field']] = array(
@@ -190,8 +224,25 @@ function property_editablefields_form($form, &$form_state, $record, $values, $fo
   }
   $form['#attached']['js']['sites/all/libraries/otools/all.js'] = array('group' => JS_LIBRARY, 'weight' => 999);
   $form['#attached']['js'][] = drupal_get_path('module', 'editable_data') . '/editable_data.js';
-
+  $form['#attached']['js'][] = drupal_get_path('module', 'editable_data') . '/global_save.js';
+  $form['#attached']['css'][] = drupal_get_path('module', 'editable_data') . '/global_save.css';
+  $markup = '<div id="editable-data-global-save" style="display: none;">' . t('Do you want to save these changes?') . '
+<span class="question confirm">' . t('Save') . '</span><span class="ajax-wrapper-saved" style="display:none;">Saved</span><span class="ajax-wrapper-loading" style="display:none;"><span class="ajax-progress ajax-progress-throbber"><span class="throbber">&nbsp;</span></span>Please wait...</span><span class="question cancel">' . t('Cancel') . '</span></div>';
+  $form['editable_data_global_save'] = array (
+      '#type' => 'markup',
+      '#markup' => $markup,
+  );
   $form['#validate'][] = 'propertyeditablefields_form_validate';
+
+  if (isset($entity_data_settings['editable_data_edit_mode']) && $entity_data_settings['editable_data_edit_mode'] == 'edit') {
+    $data = array($wrapper_id => array('wrapper_id' => $wrapper_id));
+    $form['#attached']['js'][] = array(
+      'data' => array('ed_edit_mode' => $data),
+      'type' => 'setting'
+    );
+    // Hide form actions
+    $form['actions']['#attributes']['class'][] = 'element-invisible';
+  }
   return $form;
 }
 
@@ -202,9 +253,16 @@ function propertyeditablefields_form_validate($form, &$form_state) {
   if (!isset($form['actions']['edit'])) {
     if (isset($form[$form_state['#field']]) && $form[$form_state['#field']]['#type'] == 'date_popup') {
       $date = $form_state['values'][$form_state['#field']];
-      $form_state['values'][$form_state['#field']] = strtotime($date);
+      $form_state['values'][$form_state['#field']] = pe_add_cur_time(strtotime($date));
     }
   }
+}
+
+function pe_add_cur_time($datetimestamp) {
+  $datetime = date("Y-m-d", $datetimestamp);
+  $t = time() - strtotime("today");
+  $t1 = strtotime($datetime) + $t;
+  return $t1;
 }
 
 /**
@@ -281,9 +339,13 @@ function _propertyeditablefields_set_edit_mode(&$form_state, $value, $parents = 
 /**
  * Helper for property form
  */
-function _property_editablefields_get_edit_mode($form_state, $parents = array()) {
+function _property_editablefields_get_edit_mode($form_state, $parents = array(), $entity_data_settings = array()) {
+  $default = FALSE;
+  if (isset($entity_data_settings['editable_data_edit_mode']) && $entity_data_settings['editable_data_edit_mode'] == 'edit') {
+    return TRUE;
+  }
   if (!isset($form_state['edit_mode'])) {
-    return FALSE;
+    return $default;
   }
 
   if (!empty($parents) && is_array($form_state['edit_mode'])) {
@@ -331,10 +393,10 @@ function entity_data_form_views_ui_config_item_form_submit($form, &$form_state) 
     _entity_data_field_settings_set($view_name, $display_name, $field_name, FALSE);
     $display_name = $override_display_name;
   }
-  $settings = array(
-    'editable_data_entity_type' => $form_state['values']['options']['editable_data_entity_type'],
-    'editable_data_entity_id_field' => $form_state['values']['options']['editable_data_entity_id_field'],
-  );
+  $settings = array();
+  foreach (element_children($form['options']['editable_data']) as $key) {
+    $settings[$key] = $form_state['values']['options']['editable_data'][$key];
+  }
 
   // If no action was desired, delete the settings entirely:
   if (!$settings['editable_data_entity_type'] || ($settings['editable_data_entity_type'] == '-')) {

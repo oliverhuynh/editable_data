@@ -18,4 +18,13 @@ function editable_data_views_data_alter(&$data) {
       }
     }
   }
+
+  // Actions
+  $data['views']['editable_data_actions'] = array(
+    'title' => t('Actions'),
+    'help' => t('Ouputs one global submit/cancel action for the row'),
+    'field' => array(
+      'handler' => 'editable_data_handler_field_actions',
+    ),
+  );
 }

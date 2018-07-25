@@ -1,0 +1,15 @@
+#editable-data-global-save {
+  background: none repeat scroll 0 0 #CCCCCC;
+  bottom: 10px;
+  color: #000000;
+  padding: 5px 15px;
+  position: fixed;
+  right: 5px;
+  z-index: 99999;
+}
+#editable-data-global-save .question {
+  background: none repeat scroll 0 0 #DDDDDD;
+  cursor: pointer;
+  margin-left: 20px;
+  padding: 5px;
+}
