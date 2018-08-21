@@ -253,7 +253,9 @@ function propertyeditablefields_form_validate($form, &$form_state) {
   if (!isset($form['actions']['edit'])) {
     if (isset($form[$form_state['#field']]) && $form[$form_state['#field']]['#type'] == 'date_popup') {
       $date = $form_state['values'][$form_state['#field']];
-      $form_state['values'][$form_state['#field']] = pe_add_cur_time(strtotime($date));
+      if ($date) {
+        $form_state['values'][$form_state['#field']] = pe_add_cur_time(strtotime($date));
+      }
     }
   }
 }
